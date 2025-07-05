@@ -1,12 +1,12 @@
 <template>
-  <div :class="['min-h-screen', theme.background, theme.text]">
+  <div :class="['min-h-screen', theme.background, theme.text, 'print:bg-white']">
     <!-- Header Section -->
     <header :class="['py-4', theme.headerBg, 'shadow-md', 'rounded-b-lg', 'sticky', 'top-0', 'z-50', 'mx-auto', 'max-w-7xl', 'px-4', 'sm:px-6', 'lg:px-8', 'print:hidden']">
       <div class="flex items-center justify-between">
         <h1 :class="['text-3xl', 'font-bold', theme.headerText]">{{ $t('RTU Monitoring Dashboard') }}</h1>
         <div class="flex items-center space-x-4">
           <!-- Language Switch -->
-          <select v-model="$i18n.locale" @change="changeLanguage" :class="['px-3', 'py-2', 'rounded-md', theme.selectBg, theme.selectText, theme.selectBorder, 'focus:outline-none', 'focus:ring-2', theme.focusRing]">
+          <select v-model="selectedLocale" @change="changeLanguage" :class="['px-3', 'py-2', 'rounded-md', theme.selectBg, theme.selectText, theme.selectBorder, 'focus:outline-none', 'focus:ring-2', theme.focusRing]">
             <option value="en">English</option>
             <option value="ar">العربية</option>
           </select>
@@ -14,10 +14,10 @@
           <!-- Theme Switch Button -->
           <button @click="toggleTheme" :class="['p-2', 'rounded-full', theme.buttonBg, theme.buttonText, 'hover:brightness-110', 'transition-all', 'duration-300']">
             <template v-if="currentTheme === 'light'">
-              <lucide-sun :class="['w-6', 'h-6', theme.buttonText]" />
+              <LucideSun :class="['w-6', 'h-6', theme.buttonText]" />
             </template>
             <template v-else>
-              <lucide-moon :class="['w-6', 'h-6', theme.buttonText]" />
+              <LucideMoon :class="['w-6', 'h-6', theme.buttonText]" />
             </template>
           </button>
         </div>
@@ -26,9 +26,9 @@
       <nav :class="['mt-4', 'flex', 'space-x-4', 'justify-center', 'p-2', 'rounded-lg', theme.tabBg]">
         <button v-for="tab in tabs" :key="tab.id" @click="activeTab = tab.id"
                 :class="['px-4', 'py-2', 'rounded-md', 'font-medium', 'transition-colors', 'duration-200',
-                          activeTab === tab.id ? theme.activeTabBg : theme.inactiveTabBg,
-                          activeTab === tab.id ? theme.activeTabText : theme.inactiveTabText,
-                          'hover:bg-opacity-80']">
+                        activeTab === tab.id ? theme.activeTabBg : theme.inactiveTabBg,
+                        activeTab === tab.id ? theme.activeTabText : theme.inactiveTabText,
+                        'hover:bg-opacity-80']">
           {{ $t(tab.name) }}
         </button>
       </nav>
@@ -43,18 +43,25 @@
       </div>
 
       <!-- Live Status Tab Content -->
-      <div v-if="activeTab === 'live_status'" :class="[theme.cardBg, 'p-6', 'rounded-lg', 'shadow-xl']">
-        <h2 :class="['text-2xl', 'font-semibold', 'mb-4', theme.headerText]">{{ $t('Live RTU Status') }}</h2>
+      <div v-if="activeTab === 'live_status'" :class="[theme.cardBg, 'p-6', 'rounded-lg', 'shadow-xl', 'live-status-print-area']">
+        <h2 :class="['text-2xl', 'font-semibold', 'mb-4', theme.headerText, 'print:text-black', 'print:text-xl', 'print:font-bold', 'print:mb-4', 'print-only-title']">{{ $t('Live RTU Status') }}</h2>
         
-        <!-- Print Button -->
-        <div class="flex justify-end mb-4 print:hidden">
+        <!-- Export and Print Buttons -->
+        <div class="flex justify-end mb-4 space-x-2 print:hidden">
+            <!-- زر تصدير Excel -->
+            <button @click="exportToExcel" 
+            :class="['px-4', 'py-2', 'rounded-md', 'font-medium', 'transition-colors', 'duration-200', theme.buttonBg, theme.buttonText, 'hover:brightness-110']">
+            <LucideDownload :class="['inline-block', 'w-5', 'h-5', 'mr-2']" />
+            {{ $t('Export to Excel') }}
+            </button>
+            <!-- زر الطباعة -->
             <button @click="printLiveStatus" :class="['px-4', 'py-2', 'rounded-md', 'font-medium', 'transition-colors', 'duration-200', theme.buttonBg, theme.buttonText, 'hover:brightness-110']">
-                <lucide-printer :class="['inline-block', 'w-5', 'h-5', 'mr-2']" /> {{ $t('Print') }}
+                <LucidePrinter :class="['inline-block', 'w-5', 'h-5', 'mr-2']" /> {{ $t('Print') }}
             </button>
         </div>
 
-        <p v-if="loading" :class="[theme.text]">Loading live data...</p>
-        <p v-else-if="!liveData.length" :class="[theme.text]">{{ $t('No live data available for stations 450-511') }}</p>
+        <p v-if="loading" :class="[theme.text, 'print:hidden']">{{ $t('Loading live data...') }}</p>
+        <p v-else-if="!liveData.length" :class="[theme.text, 'print:text-black', 'print-only-message']">{{ $t('No live data available for stations.') }}</p>
         <div v-else class="overflow-x-auto rounded-lg shadow-inner">
           <table :class="['min-w-full', 'divide-y', theme.divideColor]">
             <thead :class="[theme.tableHeaderBg]">
@@ -81,7 +88,9 @@
                   </span>
                 </td>
                 <!-- Percentage Day with one decimal place -->
-                <td :class="['px-6', 'py-4', 'whitespace-nowrap', theme.tableCellText]">{{ rtu.percentage_day.toFixed(1) }}%</td>
+                <td :class="['px-6', 'py-4', 'whitespace-nowrap', theme.tableCellText]">
+                  {{ (rtu.percentage_day || 0).toFixed(1) }}%
+                </td>
               </tr>
             </tbody>
           </table>
@@ -91,30 +100,32 @@
       <!-- Overall Statistics Tab Content -->
       <div v-if="activeTab === 'overall_stats'" :class="[theme.cardBg, 'p-6', 'rounded-lg', 'shadow-xl', 'print:hidden']">
         <h2 :class="['text-2xl', 'font-semibold', 'mb-4', theme.headerText]">{{ $t('Overall Statistics') }}</h2>
-        <p v-if="loading" :class="[theme.text]">Loading overall statistics...</p>
+        <p v-if="loading" :class="[theme.text]">{{ $t('Loading overall statistics...') }}</p>
         <p v-else-if="!overallStats" :class="[theme.text]">No overall statistics available.</p>
         <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <!-- Total Stations -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg]">
             <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText]">{{ $t('Total Stations') }}</h3>
-            <p :class="['text-3xl', 'font-bold', theme.tableCellText]">{{ overallStats.total_stations_count }}</p>
+            <p :class="['text-3xl', 'font-bold', theme.tableCellText]">{{ overallStats.total_stations_count || 0 }}</p>
           </div>
+          
           <!-- Connected Stations -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg]">
             <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText]">{{ $t('Connected Stations') }}</h3>
-            <p :class="['text-3xl', 'font-bold', 'text-green-500']">{{ overallStats.connected_stations_count }}</p>
+            <p :class="['text-3xl', 'font-bold', 'text-green-500']">{{ overallStats.connected_stations_count || 0 }}</p>
           </div>
+          
           <!-- Disconnected Stations -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg]">
             <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText]">{{ $t('Disconnected Stations') }}</h3>
-            <p :class="['text-3xl', 'font-bold', 'text-red-500']">{{ overallStats.disconnected_stations_count }}</p>
+            <p :class="['text-3xl', 'font-bold', 'text-red-500']">{{ overallStats.disconnected_stations_count || 0 }}</p>
           </div>
 
           <!-- Status Distribution -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg, 'md:col-span-2', 'lg:col-span-1']">
             <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText, 'mb-2']">{{ $t('Status Distribution') }}</h3>
             <ul>
-              <li v-for="(count, status) in overallStats.status_distribution" :key="status" :class="['flex', 'justify-between', 'items-center', 'py-1']">
+              <li v-for="(count, status) in overallStats.status_distribution || {}" :key="status" :class="['flex', 'justify-between', 'items-center', 'py-1']">
                 <span :class="['font-medium', theme.tableCellText]">{{ $t(status) }}</span>
                 <span :class="['px-2', 'inline-flex', 'text-xs', 'leading-5', 'font-semibold', 'rounded-full', getStatusClass(getDisplayColorForStatus(status))]">
                   {{ count }}
@@ -126,33 +137,45 @@
           <!-- Average Daily Operation Percentage -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg, 'lg:col-span-1']">
             <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText]">{{ $t('Average Daily Operation Percentage') }}</h3>
-            <p :class="['text-3xl', 'font-bold', theme.tableCellText]">{{ overallStats.average_daily_operation_percentage.toFixed(1) }}%</p>
+            <p :class="['text-3xl', 'font-bold', theme.tableCellText]">
+              {{ (overallStats.average_daily_operation_percentage || 0).toFixed(1) }}%
+            </p>
           </div>
 
-          <!-- Top Performing Stations -->
+          <!-- Top 5 Performing Stations -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg]">
-            <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText, 'mb-2']">{{ $t('Top Performing Stations') }}</h3>
-            <ul v-if="overallStats.top_performing_stations.length">
-              <li v-for="station in overallStats.top_performing_stations" :key="station.station_id" :class="['flex', 'justify-between', 'items-center', 'py-1', theme.tableCellText]">
-                <span>{{ $i18n.locale === 'ar' ? station.arabic_name : station.english_name }} (ID: {{ station.station_id }})</span>
-                <span class="font-bold text-green-500">{{ station.daily_operation_percentage.toFixed(1) }}%</span>
-              </li>
-            </ul>
-            <p v-else :class="[theme.mutedText]">{{ $t('No data available for top performing stations.') }}</p>
+            <h3 :class="['text-lg', 'font-medium', theme.headerText, 'mb-2']">{{ $t('Top Performing Stations') }}</h3>
+            
+            <div v-if="overallStats.top_performing_stations && overallStats.top_performing_stations.length > 0">
+              <ol class="list-decimal list-inside space-y-2">
+                <li v-for="station in overallStats.top_performing_stations" :key="station.station_id" 
+                    :class="['py-1', 'px-2', 'rounded', theme.tableCellText]">
+                  {{ $i18n.locale === 'ar' ? station.arabic_name : station.english_name }} (ID: {{ station.rtu_data_id }})
+                  <span class="font-bold text-green-500 ml-2">
+                    ({{ (station.percentage_day || 0).toFixed(1) }}%)
+                  </span>
+                </li>
+              </ol>
+            </div>
+            
+            <div v-else :class="['p-2', 'text-center', theme.mutedText]">
+              {{ $t('No data available for top performing stations.') }}
+            </div>
           </div>
 
           <!-- Bottom Performing Stations -->
           <div :class="['p-4', 'rounded-lg', 'shadow-md', theme.tableHeaderBg]">
             <h3 :class="['text-lg', 'font-medium', theme.tableHeaderText, 'mb-2']">{{ $t('Bottom Performing Stations') }}</h3>
-            <ul v-if="overallStats.bottom_performing_stations.length">
+            <ul v-if="overallStats.bottom_performing_stations && overallStats.bottom_performing_stations.length">
               <li v-for="station in overallStats.bottom_performing_stations" :key="station.station_id" :class="['flex', 'justify-between', 'items-center', 'py-1', theme.tableCellText]">
-                <span>{{ $i18n.locale === 'ar' ? station.arabic_name : station.english_name }} (ID: {{ station.station_id }})</span>
-                <span class="font-bold text-red-500">{{ station.daily_operation_percentage.toFixed(1) }}%</span>
+                <span>{{ $i18n.locale === 'ar' ? station.arabic_name : station.english_name }} (ID: {{ station.rtu_data_id }})</span>
+                <span class="font-bold text-red-500">
+                  {{ (station.percentage_day || 0).toFixed(1) }}%
+                </span>
               </li>
             </ul>
             <p v-else :class="[theme.mutedText]">{{ $t('No data available for bottom performing stations.') }}</p>
           </div>
-
         </div>
       </div>
     </main>
@@ -165,7 +188,7 @@
 </template>
 
 <script>
-import { Sun as LucideSun, Moon as LucideMoon, Printer as LucidePrinter } from 'lucide-vue-next';
+import { Sun as LucideSun, Moon as LucideMoon, Download as LucideDownload, Printer as LucidePrinter } from 'lucide-vue-next';
 import { createI18n } from 'vue-i18n';
 
 import en from './locales/en.json';
@@ -185,7 +208,8 @@ export default {
   components: {
     LucideSun,
     LucideMoon,
-    LucidePrinter, // Import the Printer icon
+    LucideDownload,
+    LucidePrinter,
   },
   data() {
     return {
@@ -193,8 +217,17 @@ export default {
       loading: true,
       dataLoaded: false,
       liveData: [],
-      overallStats: null,
-
+      overallStats: { // Initializing overallStats to avoid errors if data is not yet loaded
+        total_stations_count: 0,
+        connected_stations_count: 0,
+        disconnected_stations_count: 0,
+        status_distribution: {},
+        average_daily_operation_percentage: 0,
+        top_performing_stations: [],
+        bottom_performing_stations: []
+      },
+      pollingInterval: null,
+      selectedLocale: 'en', // Use selectedLocale for v-model
       themes: {
         light: {
           background: 'bg-gray-100',
@@ -254,17 +287,17 @@ export default {
       tabs: [
         { id: 'live_status', name: 'Live Status' },
         { id: 'overall_stats', name: 'Overall Statistics' }
-      ],
+      ]
     };
   },
   computed: {
     theme() {
       return this.themes[this.currentTheme];
-    },
+    }
   },
   methods: {
     changeLanguage(event) {
-      i18n.global.locale.value = event.target.value;
+      i18n.global.locale.value = event.target.value; // Corrected to .value for Vue 3
       localStorage.setItem('locale', event.target.value);
     },
     toggleTheme() {
@@ -301,43 +334,113 @@ export default {
     async fetchData() {
       try {
         this.loading = true;
-        const response = await fetch('/rtu-data');
+        // Changed to relative path if Laravel serves Vue from the same domain/port
+        const response = await fetch('/rtu-data'); 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
 
-        this.liveData = data.stations_data.map(item => {
-          return {
-            station_id: item.station_id,
-            rtu_data_id: item.rtu_data_id,
-            arabic_name: item.arabic_name,
-            english_name: item.english_name,
-            rtu_status_text: item.rtu_status_text,
-            rtu_status_color: item.rtu_status_color,
-            connection_status_text: item.connection_status_text,
-            connection_status_color: item.connection_status_color,
-            total_value: item.total_value,
-            rtu_operation_percentage: item.rtu_operation_percentage,
-            percentage_day: item.percentage_day,
-          };
-        });
+        this.liveData = (data.stations_data || []).map(item => ({
+          station_id: item.station_id,
+          rtu_data_id: item.rtu_data_id,
+          arabic_name: item.arabic_name,
+          english_name: item.english_name,
+          rtu_status_text: item.rtu_status_text || 'Unknown',
+          rtu_status_color: item.rtu_status_color || 'gray',
+          connection_status_text: item.connection_status_text || 'Unknown',
+          connection_status_color: item.connection_status_color || 'gray',
+          percentage_day: parseFloat(item.percentage_day) || 0 // Ensure it's a number
+        }));
 
-        this.overallStats = data.overall_stats;
+        if (data.overall_stats) {
+            this.overallStats = {
+                total_stations_count: data.overall_stats.total_stations_count || 0,
+                connected_stations_count: data.overall_stats.connected_stations_count || 0,
+                disconnected_stations_count: data.overall_stats.disconnected_stations_count || 0,
+                status_distribution: data.overall_stats.status_distribution || {},
+                average_daily_operation_percentage: parseFloat(data.overall_stats.average_daily_operation_percentage) || 0,
+                // Ensure parsing for top/bottom performing stations
+                top_performing_stations: (data.overall_stats.top_performing_stations || []).map(station => ({
+                    ...station,
+                    percentage_day: parseFloat(station.percentage_day) || 0
+                })),
+                bottom_performing_stations: (data.overall_stats.bottom_performing_stations || []).map(station => ({
+                    ...station,
+                    percentage_day: parseFloat(station.percentage_day) || 0
+                }))
+            };
+        } else {
+            // Reset overallStats if no data is received
+            this.overallStats = {
+                total_stations_count: 0,
+                connected_stations_count: 0,
+                disconnected_stations_count: 0,
+                status_distribution: {},
+                average_daily_operation_percentage: 0,
+                top_performing_stations: [],
+                bottom_performing_stations: []
+            };
+        }
 
         this.dataLoaded = true;
       } catch (error) {
         console.error("Error fetching data:", error);
+        // Reset data on error to reflect no data or loading issue
+        this.liveData = [];
+        this.overallStats = {
+          total_stations_count: 0,
+          connected_stations_count: 0,
+          disconnected_stations_count: 0,
+          status_distribution: {},
+          average_daily_operation_percentage: 0,
+          top_performing_stations: [],
+          bottom_performing_stations: []
+        };
       } finally {
         this.loading = false;
       }
     },
-    startPolling() {
-      this.fetchData();
-      setInterval(this.fetchData, 60000);
+    async exportToExcel() {
+      try {
+        const response = await fetch('/export-rtu-data-excel');
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+
+        const now = new Date();
+        const dateString = now.getFullYear() + '-' + 
+                           String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                           String(now.getDate()).padStart(2, '0');
+        const timeString = String(now.getHours()).padStart(2, '0') + 
+                           String(now.getMinutes()).padStart(2, '0') + 
+                           String(now.getSeconds()).padStart(2, '0');
+        const filename = `rtu_live_status_excel_${dateString}_${timeString}.xlsx`;
+
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error("Error exporting Excel:", error);
+        alert(this.$t('Failed to export Excel file. Please try again.'));
+      }
     },
     printLiveStatus() {
       window.print();
+    },
+    startPolling() {
+      this.fetchData();
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval);
+      }
+      this.pollingInterval = setInterval(this.fetchData, 60000);
     }
   },
   created() {
@@ -345,67 +448,103 @@ export default {
     if (savedTheme) {
       this.currentTheme = savedTheme;
     }
-
     const savedLocale = localStorage.getItem('locale');
     if (savedLocale) {
-      i18n.global.locale.value = savedLocale;
+      i18n.global.locale.value = savedLocale; // Corrected to .value for Vue 3
+      this.selectedLocale = savedLocale; // Ensure selectedLocale is updated
+    } else {
+        this.selectedLocale = i18n.global.locale.value; // Initialize with default i18n locale
     }
-
     this.startPolling();
   },
+  beforeUnmount() {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+    }
+  }
 };
 </script>
 
 <style scoped>
-/* Scoped styles for App.vue */
-
-/* Print styles for responsive printing */
 @media print {
-  /* Hide header, footer, and other tabs */
-  header, footer, .tabs, .print\:hidden {
+  header, footer, nav, .print\:hidden {
     display: none !important;
   }
 
-  /* Ensure main content takes full width */
+  div[v-if='activeTab === "overall_stats"'] {
+    display: none !important;
+  }
+
+  .live-status-print-area {
+    display: block !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background-color: #fff !important;
+  }
+
   main {
     margin: 0 !important;
     padding: 0 !important;
     max-width: none !important;
+    width: 100% !important;
   }
 
-  /* Ensure table and its content are fully visible */
   table {
     width: 100% !important;
     border-collapse: collapse !important;
+    table-layout: fixed;
   }
 
   th, td {
-    border: 1px solid #ccc !important; /* Add borders for print clarity */
-    padding: 8px !important;
+    border: 1px solid #ccc !important;
+    padding: 1px 2px !important;
     text-align: left !important;
-    font-size: 10px !important; /* Smaller font for print */
+    font-size: 6px !important;
+    word-wrap: break-word;
+    overflow: hidden;
   }
 
-  /* Adjust text colors for print (usually black on white) */
+  h2.print-only-title {
+    color: #000 !important;
+    font-size: 12px !important;
+    text-align: center !important;
+    margin-bottom: 3px !important;
+    padding-top: 3px !important;
+  }
+
   .text-gray-800, .text-gray-900, .text-gray-500, .text-gray-700, .text-gray-100 {
     color: #000 !important;
   }
 
-  /* Ensure background colors are white for print */
-  .bg-gray-100, .bg-white, .bg-gray-50, .bg-gray-200, .bg-gray-300, .bg-gray-700, .bg-gray-800, .bg-gray-900 {
+  .bg-gray-100, .bg-white, .bg-gray-50, .bg-gray-200, .bg-gray-300, .bg-gray-700, .bg-gray-800, .bg-gray-900,
+  .theme\.cardBg, .theme\.tableHeaderBg, .theme\.tableRowBg {
     background-color: #fff !important;
   }
 
-  /* Keep status colors but ensure readability */
   .bg-green-100 { background-color: #d4edda !important; color: #155724 !important; }
   .bg-red-100 { background-color: #f8d7da !important; color: #721c24 !important; }
   .bg-orange-100 { background-color: #ffeeba !important; color: #856404 !important; }
   .bg-blue-100 { background-color: #d1ecf1 !important; color: #0c5460 !important; }
   .bg-gray-100 { background-color: #f8f9fa !important; color: #343a40 !important; }
 
-  /* Hide scrollbars for print */
   .overflow-x-auto {
     overflow: visible !important;
+  }
+
+  p[v-if="loading"], p[v-else-if="!liveData.length"] {
+    display: none !important;
+  }
+  
+  p[v-else-if="!liveData.length"].print-only-message { 
+    display: block !important;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 0.5cm;
   }
 }
 </style>
