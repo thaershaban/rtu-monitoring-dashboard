@@ -23,7 +23,7 @@
   "Bottom Performing Stations": "أضعف المحطات أداءً",
   "No data available for top performing stations.": "لا توجد بيانات لأفضل المحطات.",
   "No data available for bottom performing stations.": "لا توجد بيانات لأضعف المحطات.",
-  "Operations and Control Department": "قسم العمليات والتحكم",
+  "Operations and Control Department": "دائره التشغيل والتحكم",
   "Failed to export Excel file. Please try again.": "فشل في تصدير ملف Excel، حاول مرة أخرى.",
   "Live RTU Status": "الحالة الحية لوحدات RTU",
   "Normal": "طبيعي",
@@ -31,5 +31,6 @@
   "Marginal": "هامشي",
   "Alarm": "إنذار",
   "OffNoData": "متوقف/لا توجد بيانات",
+  "On": "قيد التشغيل",
   "Unknown": "غير معروف"
 }
