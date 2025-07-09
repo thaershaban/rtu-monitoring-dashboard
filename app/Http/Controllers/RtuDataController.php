@@ -10,386 +10,274 @@ use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log; // تأكد من وجود هذا الاستيراد
-use Symfony\Component\HttpFoundation\StreamedResponse; // تأكد من وجود هذا الاستيراد
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class RtuDataController extends Controller
 {
     public function index()
     {
-        $rtuDataEntries = RtuData::all();
+        try {
+            $rtuDataEntries = RtuData::select([
+                'id',
+                'name',
+                'Arabic_Names',
+                'status_rtu',
+                'percentage_day',
+                'lastmodified'
+            ])->get();
 
-        $stationsData = [];
-        $connectedStationsCount = 0;
-        $disconnectedStationsCount = 0;
-        $totalDailyOperationPercentage = 0;
-        $stationsWithOperationDataCount = 0;
-        $statusDistribution = [
-            'Normal' => 0,
-            'Failed' => 0,
-            'Marginal' => 0,
-            'Alarm' => 0,
-            'OffNoData' => 0,
-            'Unknown' => 0,
-        ];
-
-        foreach ($rtuDataEntries as $rtu) {
-            $rtuId = $rtu->id;
-            $arabicName = $rtu->Arabic_Names;
-            $englishName = $rtu->name;
-
-            $rtuStatusText = 'Unknown';
-            $rtuStatusColor = 'gray';
-            $connectionStatusText = 'OffNoData';
-            $connectionStatusColor = 'red';
-            // تأكد من أن percentage_day يتم تحويله إلى float بشكل صحيح
-            $percentageDay = (float)$rtu->percentage_day ?? 0.00;
-
-            // تحديد ما إذا كانت البيانات حديثة (آخر 5 دقائق) لتحديد حالة الاتصال
-            $isRecent = ($rtu->lastmodified && Carbon::parse($rtu->lastmodified)->gt(Carbon::now()->subMinutes(5)));
-
-            // تحديد حالة RTU بناءً على status_rtu
-            switch ((int)$rtu->status_rtu) {
-                case 1: $rtuStatusText = 'Normal'; break;
-                case 2: $rtuStatusText = 'Failed'; break;
-                case 3: $rtuStatusText = 'Marginal'; break;
-                case 4: $rtuStatusText = 'Alarm'; break;
-                default: $rtuStatusText = 'Unknown'; break;
+            if ($rtuDataEntries->isEmpty()) {
+                return response()->json([
+                    'stations_data' => [],
+                    'overall_stats' => $this->emptyStats()
+                ]);
             }
 
-            // تحديد لون حالة RTU
-            switch ($rtuStatusText) {
-                case 'Normal': $rtuStatusColor = 'green'; break;
-                case 'Failed': $rtuStatusColor = 'red'; break;
-                case 'Marginal': $rtuStatusColor = 'orange'; break;
-                case 'Alarm': $rtuStatusColor = 'blue'; break;
-                default: $rtuStatusColor = 'gray'; break;
+            $stationsData = [];
+            $stats = $this->initializeStats();
+
+            foreach ($rtuDataEntries as $rtu) {
+                $processedData = $this->processRtuData($rtu);
+                $stationsData[] = $processedData['station'];
+                
+                // Update stats
+                $stats['connected'] += $processedData['is_connected'] ? 1 : 0;
+                $stats['total_percentage'] += $processedData['station']['percentage_day'];
+                if ($processedData['station']['percentage_day'] > 0) {
+                    $stats['stations_with_data']++;
+                }
+                $stats['status_counts'][$processedData['station']['rtu_status_text']]++;
             }
 
-            // تحديد حالة الاتصال بناءً على الحداثة
-            if ($isRecent) {
-                $connectionStatusText = 'On';
-                $connectionStatusColor = 'green';
-            } else {
-                $connectionStatusText = 'OffNoData';
-                $connectionStatusColor = 'red';
-            }
+            usort($stationsData, fn($a, $b) => $a['rtu_data_id'] <=> $b['rtu_data_id']);
 
-            // تحديث إحصائيات الاتصال
-            if ($connectionStatusText === 'On') {
-                $connectedStationsCount++;
-            } else {
-                $disconnectedStationsCount++;
-            }
+            return response()->json([
+                'stations_data' => $stationsData,
+                'overall_stats' => $this->compileStats($stationsData, $stats)
+            ]);
 
-            // تحديث إحصائيات نسبة التشغيل اليومي
-            $totalDailyOperationPercentage += $percentageDay;
-            $stationsWithOperationDataCount++;
-
-            // تحديث توزيع الحالات
-            if (array_key_exists($rtuStatusText, $statusDistribution)) {
-                $statusDistribution[$rtuStatusText]++;
-            } else {
-                $statusDistribution['Unknown']++;
-            }
-            
-            // إضافة البيانات المنسقة للمحطة إلى مصفوفة stationsData
-            $stationsData[] = [
-                'station_id' => $rtuId, // استخدام id كمعرف للمحطة
-                'rtu_data_id' => $rtuId, // هذا هو رقم RTU الذي سيظهر في الواجهة
-                'arabic_name' => $arabicName,
-                'english_name' => $englishName,
-                'rtu_status_text' => $rtuStatusText,
-                'rtu_status_color' => $rtuStatusColor,
-                'connection_status_text' => $connectionStatusText,
-                'connection_status_color' => $connectionStatusColor,
-                'percentage_day' => $percentageDay, // قيمة نسبة التشغيل اليومي
-            ];
+        } catch (\Exception $e) {
+            Log::error("RTU Data API Error: " . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to load RTU data',
+                'details' => env('APP_DEBUG') ? $e->getMessage() : null
+            ], 500);
         }
-
-        // فرز stationsData حسب rtu_data_id (رقم RTU)
-        usort($stationsData, function($a, $b) {
-            return $a['rtu_data_id'] <=> $b['rtu_data_id'];
-        });
-
-        // حساب الإحصائيات العامة
-        $totalStationsCount = count($rtuDataEntries); // عدد السجلات في rtu_data هو إجمالي المحطات
-        $averageDailyOperationPercentage = $stationsWithOperationDataCount > 0
-            ? $totalDailyOperationPercentage / $stationsWithOperationDataCount
-            : 0;
-
-        // المحطات الأعلى أداءً (بناءً على percentage_day تنازلياً)
-        $topPerformingStations = collect($stationsData)
-            ->sortByDesc('percentage_day') // فرز تنازلياً
-            ->take(5) // أخذ أول 5
-            ->values() // إعادة فهرسة المفاتيح
-            ->toArray();
-
-        // المحطات الأدنى أداءً (بناءً على percentage_day تصاعدياً)
-        $bottomPerformingStations = collect($stationsData)
-            ->sortBy('percentage_day') // فرز تصاعدياً
-            ->take(5) // أخذ أول 5
-            ->values() // إعادة فهرسة المفاتيح
-            ->toArray();
-
-        // تجميع جميع الإحصائيات في مصفوفة واحدة
-        $overallStats = [
-            'total_stations_count' => $totalStationsCount,
-            'connected_stations_count' => $connectedStationsCount,
-            'disconnected_stations_count' => $disconnectedStationsCount,
-            'status_distribution' => $statusDistribution,
-            'average_daily_operation_percentage' => $averageDailyOperationPercentage,
-            'top_performing_stations' => $topPerformingStations,
-            'bottom_performing_stations' => $bottomPerformingStations,
-        ];
-
-        // *** أسطر التسجيل لتتبع البيانات المرسلة إلى الواجهة الأمامية ***
-        Log::info('Overall Stats being sent:', $overallStats);
-        Log::info('Top Performing Stations (Backend):', $topPerformingStations);
-        Log::info('Bottom Performing Stations (Backend):', $bottomPerformingStations);
-        // ************************************************************
-
-        // إرجاع البيانات كاستجابة JSON
-        return response()->json([
-            'stations_data' => $stationsData,
-            'overall_stats' => $overallStats,
-        ]);
     }
 
-    /**
-     * Export RTU data to CSV.
-     *
-     * @return \Illuminate\Http\Response
-     */
+    public function exportToExcel()
+    {
+        return $this->exportRtuDataExcel();
+    }
+
     public function exportRtuData()
     {
         try {
-            $rtuDataEntries = RtuData::all();
+            $data = $this->prepareExportData();
+            $filename = 'rtu_status_' . Carbon::now()->format('Y-m-d_H-i-s') . '.csv';
 
-            $csvData = [];
-            $csvData[] = [
-                'RTU NUMBER',
-                'STATION NAME (English)',
-                'STATION NAME (Arabic)',
-                'RTU STATUS',
-                'CONNECTION STATUS',
-                'PERCENTAGE DAY'
-            ];
-
-            foreach ($rtuDataEntries as $rtu) {
-                $rtuStatusText = 'Unknown';
-                $connectionStatusText = 'OffNoData';
-                $percentageDay = (float)$rtu->percentage_day ?? 0.00;
-
-                $isRecent = ($rtu->lastmodified && Carbon::parse($rtu->lastmodified)->gt(Carbon::now()->subMinutes(5)));
-
-                switch ((int)$rtu->status_rtu) {
-                    case 1: $rtuStatusText = 'Normal'; break;
-                    case 2: $rtuStatusText = 'Failed'; break;
-                    case 3: $rtuStatusText = 'Marginal'; break;
-                    case 4: $rtuStatusText = 'Alarm'; break;
-                    default: $rtuStatusText = 'Unknown'; break;
-                }
-
-                if ($isRecent) {
-                    $connectionStatusText = 'On';
-                } else {
-                    $connectionStatusText = 'OffNoData';
-                }
-
-                $csvData[] = [
-                    $rtu->id, // استخدام id كـ RTU NUMBER
-                    $rtu->name,
-                    $rtu->Arabic_Names,
-                    $rtuStatusText,
-                    $connectionStatusText,
-                    round($percentageDay, 1) . '%'
-                ];
-            }
-
-            // فرز حسب رقم RTU (مع تخطي صف الرأس)
-            usort($csvData, function($a, $b) {
-                if (!is_numeric($a[0]) || !is_numeric($b[0])) return 0;
-                return $a[0] <=> $b[0];
-            });
-
-            $filename = 'rtu_live_status_' . Carbon::now()->format('Y-m-d_H-i-s') . '.csv';
-
-            $handle = fopen('php://temp', 'r+');
-            foreach ($csvData as $row) {
-                fputcsv($handle, $row);
-            }
-            rewind($handle);
-            $contents = stream_get_contents($handle);
-            fclose($handle);
-
-            return response($contents)
-                ->header('Content-Type', 'text/csv')
-                ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+            return response()->streamDownload(
+                function () use ($data) {
+                    $output = fopen('php://output', 'w');
+                    fputcsv($output, ['RTU NUMBER', 'STATION NAME (English)', 'STATION NAME (Arabic)', 'RTU STATUS', 'PERCENTAGE DAY']);
+                    foreach ($data as $item) {
+                        fputcsv($output, [
+                            $item['rtu_data_id'],
+                            $item['english_name'],
+                            $item['arabic_name'],
+                            $item['rtu_status_text'],
+                            round($item['percentage_day'], 1) . '%'
+                        ]);
+                    }
+                    fclose($output);
+                },
+                $filename,
+                ['Content-Type' => 'text/csv']
+            );
 
         } catch (\Exception $e) {
-            Log::error("CSV Export failed: " . $e->getMessage() . " at " . $e->getFile() . ":" . $e->getLine());
-            return response()->json(['error' => 'Failed to export CSV data. An internal error occurred.'], 500);
+            Log::error("CSV Export Error: " . $e->getMessage());
+            return response()->json(['error' => 'Export failed'], 500);
         }
     }
 
-    /**
-     * Export RTU data to Excel (XLSX).
-     *
-     * @return \Illuminate\Http\Response
-     */
     public function exportRtuDataExcel()
     {
-        // زيادة حد الذاكرة ووقت التنفيذ لهذه الدالة فقط
-        set_time_limit(0);
-        ini_set('memory_limit', '-1');
-
         try {
-            $rtuDataEntries = RtuData::all();
-
+            $data = $this->prepareExportData();
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
-            $sheet->setTitle('RTU Live Status');
+            $sheet->setTitle('RTU Status');
 
-            // تعيين الرؤوس
-            $headers = [
-                'RTU NUMBER',
-                'STATION NAME (English)',
-                'STATION NAME (Arabic)',
-                'RTU STATUS',
-                'CONNECTION STATUS',
-                'PERCENTAGE DAY'
-            ];
-            $sheet->fromArray($headers, NULL, 'A1');
+            // Set headers
+            $sheet->fromArray(['RTU NUMBER', 'STATION NAME (English)', 'STATION NAME (Arabic)', 'RTU STATUS', 'PERCENTAGE DAY'], null, 'A1');
 
-            // تنسيق الرؤوس
-            $headerStyle = [
-                'font' => [
-                    'bold' => true,
-                    'color' => ['argb' => 'FFFFFFFF'],
-                ],
-                'fill' => [
-                    'fillType' => Fill::FILL_SOLID,
-                    'startColor' => ['argb' => 'FF4F81BD'], // أزرق داكن
-                ],
-                'alignment' => [
-                    'horizontal' => Alignment::HORIZONTAL_CENTER,
-                    'vertical' => Alignment::VERTICAL_CENTER,
-                ],
-                'borders' => [
-                    'allBorders' => [
-                        'borderStyle' => Border::BORDER_THIN,
-                        'color' => ['argb' => 'FF000000'],
-                    ],
-                ],
-            ];
-            $sheet->getStyle('A1:' . $sheet->getHighestColumn() . '1')->applyFromArray($headerStyle);
+            // Header style
+            $sheet->getStyle('A1:E1')->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '4F81BD']],
+                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]
+            ]);
 
-            $currentRow = 1; // يبدأ من 1 لأن الصف الأول هو الرؤوس
-            foreach ($rtuDataEntries as $rtu) {
-                $currentRow++; // زيادة الصف لكل سجل
-                $rtuStatusText = 'Unknown';
-                $connectionStatusText = 'OffNoData';
-                $percentageDay = (float)$rtu->percentage_day ?? 0.00;
+            // Add data
+            $row = 2;
+            foreach ($data as $item) {
+                $sheet->fromArray([
+                    $item['rtu_data_id'],
+                    $item['english_name'],
+                    $item['arabic_name'],
+                    $item['rtu_status_text'],
+                    round($item['percentage_day'], 1) . '%'
+                ], null, "A{$row}");
 
-                $isRecent = ($rtu->lastmodified && Carbon::parse($rtu->lastmodified)->gt(Carbon::now()->subMinutes(5)));
-
-                switch ((int)$rtu->status_rtu) {
-                    case 1: $rtuStatusText = 'Normal'; break;
-                    case 2: $rtuStatusText = 'Failed'; break;
-                    case 3: $rtuStatusText = 'Marginal'; break;
-                    case 4: $rtuStatusText = 'Alarm'; break;
-                    default: $rtuStatusText = 'Unknown'; break;
-                }
-
-                // تحديد لون حالة RTU (للتنسيق في Excel)
-                $rtuStatusColorHex = 'DCDCDC'; // Light Gray default
-                switch ($rtuStatusText) {
-                    case 'Normal': $rtuStatusColorHex = 'C6EFCE'; break; // Light Green
-                    case 'Failed': $rtuStatusColorHex = 'FFC7CE'; break; // Light Red
-                    case 'Marginal': $rtuStatusColorHex = 'FFEB9C'; break; // Light Orange
-                    case 'Alarm': $rtuStatusColorHex = 'ADD8E6'; break; // Light Blue
-                }
-
-                if ($isRecent) {
-                    $connectionStatusText = 'On';
-                } else {
-                    $connectionStatusText = 'OffNoData';
-                }
-
-                // تحديد لون حالة الاتصال (للتنسيق في Excel)
-                $connectionStatusColorHex = 'DCDCDC'; // Light Gray default
-                switch ($connectionStatusText) {
-                    case 'On': $connectionStatusColorHex = 'C6EFCE'; break; // Light Green
-                    case 'OffNoData': $connectionStatusColorHex = 'FFC7CE'; break; // Light Red
-                }
-
-                $sheet->setCellValue('A' . $currentRow, $rtu->id);
-                $sheet->setCellValue('B' . $currentRow, $rtu->name);
-                $sheet->setCellValue('C' . $currentRow, $rtu->Arabic_Names);
-                $sheet->setCellValue('D' . $currentRow, $rtuStatusText);
-                $sheet->setCellValue('E' . $currentRow, $connectionStatusText);
-                $sheet->setCellValue('F' . $currentRow, round($percentageDay, 1) . '%');
-
-                // تطبيق الألوان على الخلايا
-                $sheet->getStyle('D' . $currentRow)->applyFromArray([
-                    'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF' . $rtuStatusColorHex]],
-                    'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FF000000']]],
+                // Apply status color
+                $sheet->getStyle("D{$row}")->applyFromArray([
+                    'fill' => [
+                        'fillType' => Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => $this->getStatusColor($item['rtu_status_text'])]
+                    ]
                 ]);
-                $sheet->getStyle('E' . $currentRow)->applyFromArray([
-                    'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF' . $connectionStatusColorHex]],
-                    'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FF000000']]],
-                ]);
-                // تطبيق الحدود على باقي الخلايا
-                $sheet->getStyle('A' . $currentRow . ':C' . $currentRow)->applyFromArray([
-                    'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FF000000']]],
-                ]);
-                $sheet->getStyle('F' . $currentRow)->applyFromArray([
-                    'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FF000000']]],
-                ]);
+                $row++;
             }
 
-            // ضبط حجم الأعمدة تلقائياً
-            foreach (range('A', $sheet->getHighestColumn()) as $column) {
-                $sheet->getColumnDimension($column)->setAutoSize(true);
+            // Auto-size columns
+            foreach (range('A', 'E') as $col) {
+                $sheet->getColumnDimension($col)->setAutoSize(true);
             }
 
-            // إعدادات الطباعة
-            $sheet->getPageSetup()->setPrintArea('A1:' . $sheet->getHighestColumn() . $sheet->getHighestRow());
-            $sheet->getPageSetup()->setFitToWidth(1);
-            $sheet->getPageSetup()->setFitToHeight(1);
-            $sheet->getPageSetup()->setOrientation(\PhpOffice\PhpSpreadsheet\Worksheet\PageSetup::ORIENTATION_LANDSCAPE);
-            $sheet->getPageMargins()->setTop(0.25);
-            $sheet->getPageMargins()->setBottom(0.25);
-            $sheet->getPageMargins()->setLeft(0.25);
-            $sheet->getPageMargins()->setRight(0.25);
-            $sheet->setShowGridlines(false);
+            $filename = 'rtu_status_' . Carbon::now()->format('Y-m-d_H-i-s') . '.xlsx';
 
-            $filename = 'rtu_live_status_excel_' . Carbon::now()->format('Y-m-d_H-i-s') . '.xlsx';
-            $writer = new Xlsx($spreadsheet);
-
-            // مسح أي buffers إخراج سابقة
-            while (ob_get_level() > 0) {
-                ob_end_clean();
-            }
-
-            $response = new StreamedResponse(function() use ($writer) {
-                $writer->save('php://output');
-            });
-            $response->headers->set('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            $response->headers->set('Content-Disposition', 'attachment;filename="' . $filename . '"');
-            $response->headers->set('Cache-Control', 'max-age=0');
-
-            return $response;
+            return response()->streamDownload(
+                function () use ($spreadsheet) {
+                    $writer = new Xlsx($spreadsheet);
+                    $writer->save('php://output');
+                },
+                $filename,
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+            );
 
         } catch (\Exception $e) {
-            // تسجيل الخطأ بتفاصيل أكثر
-            Log::error("Excel Export failed: " . $e->getMessage(), [
-                'file' => $e->getFile(),
-                'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString(),
-            ]);
-            return response()->json(['error' => 'Failed to export Excel data. An internal server error occurred. Please check server logs for details.'], 500);
+            Log::error("Excel Export Error: " . $e->getMessage());
+            return response()->json(['error' => 'Export failed'], 500);
         }
+    }
+
+    // Helper methods
+    private function emptyStats()
+    {
+        return [
+            'total_stations_count' => 0,
+            'connected_stations_count' => 0,
+            'disconnected_stations_count' => 0,
+            'status_distribution' => [
+                'Normal' => 0, 'Failed' => 0, 'Marginal' => 0,
+                'Alarm' => 0, 'OffNoData' => 0, 'Unknown' => 0
+            ],
+            'average_daily_operation_percentage' => 0,
+            'top_performing_stations' => [],
+            'bottom_performing_stations' => []
+        ];
+    }
+
+    private function initializeStats()
+    {
+        return [
+            'connected' => 0,
+            'total_percentage' => 0,
+            'stations_with_data' => 0,
+            'status_counts' => [
+                'Normal' => 0, 'Failed' => 0, 'Marginal' => 0,
+                'Alarm' => 0, 'OffNoData' => 0, 'Unknown' => 0
+            ]
+        ];
+    }
+
+    private function processRtuData($rtu)
+    {
+        $status = $this->determineRtuStatus($rtu->status_rtu ?? 0);
+        $isConnected = $this->checkConnectionStatus($rtu->lastmodified ?? null);
+
+        return [
+            'station' => [
+                'station_id' => $rtu->id ?? 0,
+                'rtu_data_id' => $rtu->id ?? 0,
+                'arabic_name' => $rtu->Arabic_Names ?? 'N/A',
+                'english_name' => $rtu->name ?? 'N/A',
+                'rtu_status_text' => $status['text'],
+                'rtu_status_color' => $status['color'],
+                'percentage_day' => (float)($rtu->percentage_day ?? 0)
+            ],
+            'is_connected' => $isConnected
+        ];
+    }
+
+    private function determineRtuStatus($statusCode)
+    {
+        return match ((int)$statusCode) {
+            1 => ['text' => 'Normal', 'color' => 'green'],
+            2 => ['text' => 'Failed', 'color' => 'red'],
+            3 => ['text' => 'Marginal', 'color' => 'orange'],
+            4 => ['text' => 'Alarm', 'color' => 'blue'],
+            default => ['text' => 'Unknown', 'color' => 'gray']
+        };
+    }
+
+    private function checkConnectionStatus($lastModified)
+    {
+        return $lastModified && Carbon::parse($lastModified)->gt(Carbon::now()->subMinutes(5));
+    }
+
+    private function compileStats($stationsData, $stats)
+    {
+        $avgPercentage = $stats['stations_with_data'] > 0 
+            ? $stats['total_percentage'] / $stats['stations_with_data'] 
+            : 0;
+
+        return [
+            'total_stations_count' => count($stationsData),
+            'connected_stations_count' => $stats['connected'],
+            'disconnected_stations_count' => count($stationsData) - $stats['connected'],
+            'status_distribution' => $stats['status_counts'],
+            'average_daily_operation_percentage' => $avgPercentage,
+            'top_performing_stations' => collect($stationsData)
+                ->sortByDesc('percentage_day')
+                ->take(5)
+                ->values()
+                ->toArray(),
+            'bottom_performing_stations' => collect($stationsData)
+                ->sortBy('percentage_day')
+                ->take(5)
+                ->values()
+                ->toArray()
+        ];
+    }
+
+    private function prepareExportData()
+    {
+        return RtuData::select(['id', 'name', 'Arabic_Names', 'status_rtu', 'percentage_day'])
+            ->get()
+            ->map(function ($rtu) {
+                $status = $this->determineRtuStatus($rtu->status_rtu ?? 0);
+                return [
+                    'rtu_data_id' => $rtu->id ?? 0,
+                    'english_name' => $rtu->name ?? 'N/A',
+                    'arabic_name' => $rtu->Arabic_Names ?? 'N/A',
+                    'rtu_status_text' => $status['text'],
+                    'percentage_day' => (float)($rtu->percentage_day ?? 0)
+                ];
+            })
+            ->toArray();
+    }
+
+    private function getStatusColor($statusText)
+    {
+        return match ($statusText) {
+            'Normal' => 'C6EFCE',
+            'Failed' => 'FFC7CE',
+            'Marginal' => 'FFEB9C',
+            'Alarm' => 'ADD8E6',
+            default => 'DCDCDC'
+        };
     }
 }
