@@ -1,31 +1,30 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\RtuDataController; // تأكد من استيراد وحدة التحكم
+use App\Http\Controllers\RtuDataController;
 
 /*
 |--------------------------------------------------------------------------
 | Web Routes
 |--------------------------------------------------------------------------
 |
-| Here is where you can register web routes for your application. These
-| routes are loaded by the RouteServiceProvider and all of them will
-| be assigned to the "web" middleware group. Make something great!
+| Here is where you can register web routes for your application.
+| These routes will handle both web pages and API-like requests
+| for your Vue.js frontend.
 |
 */
 
+// Main Vue.js Application Route
 Route::get('/', function () {
-    return view('dashboard');
+    return view('app'); // Make sure you have app.blade.php
+})->name('home');
+
+// API-like Routes for Vue.js Frontend
+Route::prefix('rtu')->group(function () {
+    // Get RTU Data
+    Route::get('/data', [RtuDataController::class, 'index'])->name('rtu.data');
+    
+    // Export Routes
+    Route::get('/export/csv', [RtuDataController::class, 'exportRtuData'])->name('rtu.export.csv');
+    Route::get('/export/excel', [RtuDataController::class, 'exportRtuDataExcel'])->name('rtu.export.excel');
 });
-
-Route::get('/rtu-data', [RtuDataController::class, 'index']);
-
-// مسار تصدير CSV (يمكنك الاحتفاظ به أو حذفه)
-// ملاحظة: إذا كانت دالة تصدير CSV في RtuDataController اسمها 'export' فقط، فهذا صحيح.
-// إذا كان اسمها 'exportRtuData'، فيجب تعديلها هنا أيضًا.
-// بناءً على الكود السابق، اسمها 'exportRtuData'. لذا سأقوم بتصحيحها.
-Route::get('/export-rtu-data', [RtuDataController::class, 'exportRtuData']);
-
-// **مسار تصدير بيانات RTU إلى Excel (تم تصحيح اسم الدالة)**
-Route::get('/export-rtu-data-excel', [RtuDataController::class, 'exportRtuDataExcel']);
-

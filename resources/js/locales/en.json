@@ -1,4 +1,4 @@
-{
+ {
   "Live Status": "Live Status",
   "Overall Statistics": "Overall Statistics",
   "RTU Monitoring Dashboard": "RTU Monitoring Dashboard",
@@ -9,7 +9,8 @@
   "Export to Excel": "Export to Excel",
   "Print": "Print",
   "RTU Number": "RTU Number",
-  "Station Name": "Station Name",
+  "Arabic Name": "Arabic Name",
+  "English Name": "English Name",
   "RTU Status": "RTU Status",
   "Connection Status": "Connection Status",
   "Percentage Day": "Percentage Day",

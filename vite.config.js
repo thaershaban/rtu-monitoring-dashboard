@@ -1,17 +1,18 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import vue from '@vitejs/plugin-vue'; // تأكد من وجود هذا الاستيراد
+import vue from '@vitejs/plugin-vue';
+import path from 'path';
 
 export default defineConfig({
     plugins: [
         laravel({
             input: [
-                'resources/css/app.css', // تأكد أن هذا المسار صحيح إذا كان لديك ملف CSS
-                'resources/js/app.js'
+                'resources/js/app.js',
+                'resources/css/app.css'
             ],
-            refresh: true, // مهم لـ HMR (Hot Module Replacement)
+            refresh: true,
         }),
-        vue({ // هذا ضروري لمعالجة ملفات .vue
+        vue({
             template: {
                 transformAssetUrls: {
                     base: null,
@@ -20,22 +21,31 @@ export default defineConfig({
             },
         }),
     ],
-    // إعدادات إضافية قد تكون مفيدة أحياناً للتعامل مع IPv6 أو المنفذ
-    server: {
-        host: '0.0.0.0', // يسمح بالوصول من أي عنوان IP
-        port: 5173,      // تأكد أن هذا هو المنفذ الذي يظهر في npm run dev
-        hmr: {
-            host: 'localhost', // استخدم localhost لتجنب مشاكل HMR مع IPv6 (::1)
+    resolve: {
+        alias: {
+            '@': path.resolve(__dirname, './resources/js'),
+            'vue': 'vue/dist/vue.esm-bundler.js'
         },
+        extensions: ['.js', '.vue', '.json']
     },
-    // ** الحل المقترح لخطأ "require is not defined" **
-    // هذا يخبر Vite بتحسين (pre-bundle) مكتبات معينة تستخدم CommonJS
+    server: {
+        host: '0.0.0.0',
+        port: 5176,
+        hmr: {
+            host: 'localhost',
+            protocol: 'ws'
+        },
+        watch: {
+            usePolling: true
+        }
+    },
     optimizeDeps: {
         include: [
-            'vue', // Vue نفسها
-            'vue-i18n', // مكتبة الترجمة التي تستخدمها
-            // 'lucide-vue-next', // إذا كانت Lucide تسبب مشكلة (أقل شيوعاً)
-            // أضف هنا أي مكتبات أخرى تسبب لك هذا الخطأ (مثل 'some-other-commonjs-library')
+            'vue',
+            'vue-i18n',
+            'lucide-vue-next',
+            'vue3-recharts'
         ],
-    },
+        exclude: []
+    }
 });
